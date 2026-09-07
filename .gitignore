@@ -1,4 +1,5 @@
 .env
+.venv/
 __pycache__/
 
 # don't assume they're using UV
