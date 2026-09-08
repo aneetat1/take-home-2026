@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -89,6 +90,23 @@ class Variant(BaseModel):
         if len(option_names) != len(set(option_names)):
             raise ValueError("A variant cannot repeat an option name")
         return self
+
+
+class MetadataEntry(BaseModel):
+    """A named value read from an HTML metadata element."""
+
+    name: str
+    content: str
+
+
+class PageEvidence(BaseModel):
+    """Content recovered from a product page before AI interpretation."""
+
+    title: str | None
+    metadata: list[MetadataEntry]
+    json_ld: list[Any]
+    embedded_json: list[Any]
+    visible_text: str
 
 
 # This is the final product schema that you need to output.
