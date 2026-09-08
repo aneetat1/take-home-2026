@@ -102,6 +102,7 @@ class MetadataEntry(BaseModel):
 class ImageCandidate(BaseModel):
     """An image URL and any resolution information stated by the page."""
 
+    reference: str | None = None
     url: str
     source: str
     width: int | None = Field(default=None, gt=0)
@@ -113,6 +114,7 @@ class ImageCandidate(BaseModel):
 class VideoCandidate(BaseModel):
     """A video URL found in markup, metadata, or structured page data."""
 
+    reference: str | None = None
     url: str
     source: str
     poster_url: str | None = None
@@ -128,6 +130,17 @@ class PageEvidence(BaseModel):
     image_candidates: list[ImageCandidate]
     video_candidates: list[VideoCandidate]
     visible_text: str
+
+
+class ProductEvidence(BaseModel):
+    """A bounded set of page evidence prepared for structured AI extraction."""
+
+    title: str | None
+    metadata: list[MetadataEntry]
+    structured_data: list[Any]
+    visible_text: str
+    image_candidates: list[ImageCandidate]
+    video_candidates: list[VideoCandidate]
 
 
 # This is the final product schema that you need to output.
