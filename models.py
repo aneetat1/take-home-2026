@@ -99,6 +99,25 @@ class MetadataEntry(BaseModel):
     content: str
 
 
+class ImageCandidate(BaseModel):
+    """An image URL and any resolution information stated by the page."""
+
+    url: str
+    source: str
+    width: int | None = Field(default=None, gt=0)
+    height: int | None = Field(default=None, gt=0)
+    density: float | None = Field(default=None, gt=0)
+    alt_text: str | None = None
+
+
+class VideoCandidate(BaseModel):
+    """A video URL found in markup, metadata, or structured page data."""
+
+    url: str
+    source: str
+    poster_url: str | None = None
+
+
 class PageEvidence(BaseModel):
     """Content recovered from a product page before AI interpretation."""
 
@@ -106,6 +125,8 @@ class PageEvidence(BaseModel):
     metadata: list[MetadataEntry]
     json_ld: list[Any]
     embedded_json: list[Any]
+    image_candidates: list[ImageCandidate]
+    video_candidates: list[VideoCandidate]
     visible_text: str
 
 

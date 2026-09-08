@@ -1,3 +1,4 @@
+import extraction
 from extraction import extract_page_evidence
 
 
@@ -157,4 +158,260 @@ def test_handles_a_minimal_page() -> None:
     assert evidence.metadata == []
     assert evidence.json_ld == []
     assert evidence.embedded_json == []
+    assert evidence.image_candidates == []
+    assert evidence.video_candidates == []
     assert evidence.visible_text == "Hello"
+
+
+def test_collects_markup_images_and_resolves_relative_urls() -> None:
+    html = """
+        <picture>
+          <source srcset="/large.webp 1600w, /large-2x.webp 2x">
+          <img
+            src="/small.jpg"
+            data-src="/lazy.jpg"
+            data-zoom-image="/zoom.jpg"
+            srcset="/medium.jpg 800w, https://cdn.example.com/full.jpg 2400w"
+            width="400"
+            height="500"
+            alt="  Blue   chair  "
+          >
+        </picture>
+    """
+
+    evidence = extract_page_evidence(html, "https://shop.example.com/products/chair")
+
+    assert [candidate.url for candidate in evidence.image_candidates] == [
+        "https://shop.example.com/large.webp",
+        "https://shop.example.com/large-2x.webp",
+        "https://shop.example.com/small.jpg",
+        "https://shop.example.com/lazy.jpg",
+        "https://shop.example.com/zoom.jpg",
+        "https://shop.example.com/medium.jpg",
+        "https://cdn.example.com/full.jpg",
+    ]
+    assert evidence.image_candidates[0].width == 1600
+    assert evidence.image_candidates[1].density == 2
+    assert evidence.image_candidates[-1].width == 2400
+    assert evidence.image_candidates[2].height == 500
+    assert evidence.image_candidates[2].alt_text == "Blue chair"
+
+
+def test_collects_metadata_media_and_removes_duplicate_urls() -> None:
+    html = """
+        <meta property="og:image" content="https://cdn.example.com/product.jpg">
+        <meta property="twitter:image" content="https://cdn.example.com/product.jpg">
+        <meta property="og:video" content="https://cdn.example.com/product.mp4">
+        <img src="https://cdn.example.com/product.jpg">
+    """
+
+    evidence = extract_page_evidence(html)
+
+    assert [candidate.url for candidate in evidence.image_candidates] == [
+        "https://cdn.example.com/product.jpg"
+    ]
+    assert [candidate.url for candidate in evidence.video_candidates] == [
+        "https://cdn.example.com/product.mp4"
+    ]
+
+
+def test_uses_document_base_url_when_source_url_is_not_supplied() -> None:
+    html = """
+        <base href="https://cdn.example.com/catalog/">
+        <img src="product.jpg">
+    """
+
+    evidence = extract_page_evidence(html)
+
+    assert evidence.image_candidates[0].url == (
+        "https://cdn.example.com/catalog/product.jpg"
+    )
+
+
+def test_duplicate_media_keeps_later_resolution_evidence() -> None:
+    html = """
+        <img
+          src="https://cdn.example.com/product.jpg"
+          width="400"
+          height="500"
+        >
+        <script type="application/ld+json">
+          {"image": {
+            "url": "https://cdn.example.com/product.jpg",
+            "width": 2400,
+            "height": 3000
+          }}
+        </script>
+    """
+
+    evidence = extract_page_evidence(html)
+
+    assert len(evidence.image_candidates) == 1
+    assert evidence.image_candidates[0].width == 2400
+    assert evidence.image_candidates[0].height == 3000
+
+
+def test_collects_video_sources_and_poster() -> None:
+    html = """
+        <video poster="/poster.jpg" src="/primary.mp4">
+          <source src="/fallback.webm" type="video/webm">
+        </video>
+    """
+
+    evidence = extract_page_evidence(html, "https://example.com/products/lamp")
+
+    assert [candidate.url for candidate in evidence.image_candidates] == [
+        "https://example.com/poster.jpg"
+    ]
+    assert [candidate.url for candidate in evidence.video_candidates] == [
+        "https://example.com/primary.mp4",
+        "https://example.com/fallback.webm",
+    ]
+    assert all(
+        candidate.poster_url == "https://example.com/poster.jpg"
+        for candidate in evidence.video_candidates
+    )
+
+
+def test_collects_images_from_structured_data() -> None:
+    html = """
+        <script type="application/ld+json">
+          {
+            "@type": "Product",
+            "image": [
+              "https://cdn.example.com/front.jpg",
+              {"url": "/side.jpg", "width": 2000, "height": 2500}
+            ]
+          }
+        </script>
+        <script type="application/json">
+          {"product": {"thumbnailUrl": "https://cdn.example.com/thumb.jpg"}}
+        </script>
+    """
+
+    evidence = extract_page_evidence(html, "https://example.com/item")
+
+    assert [candidate.url for candidate in evidence.image_candidates] == [
+        "https://cdn.example.com/front.jpg",
+        "https://example.com/side.jpg",
+        "https://cdn.example.com/thumb.jpg",
+    ]
+    assert evidence.image_candidates[1].width == 2000
+    assert evidence.image_candidates[1].height == 2500
+
+
+def test_collects_video_objects_from_structured_data() -> None:
+    html = """
+        <script type="application/ld+json">
+          {
+            "@type": "VideoObject",
+            "thumbnailUrl": "/poster.jpg",
+            "contentUrl": "/demo.mp4",
+            "embedUrl": "https://video.example.com/embed/123"
+          }
+        </script>
+    """
+
+    evidence = extract_page_evidence(html, "https://example.com/product")
+
+    assert [candidate.url for candidate in evidence.video_candidates] == [
+        "https://example.com/demo.mp4",
+        "https://video.example.com/embed/123",
+    ]
+    assert all(
+        candidate.poster_url == "https://example.com/poster.jpg"
+        for candidate in evidence.video_candidates
+    )
+
+
+def test_collects_nested_mixed_media_renditions() -> None:
+    html = """
+        <script type="application/json">
+          {"mediaObjects": [
+            {
+              "type": "image",
+              "sources": {
+                "thumbnail": {"url": "https://cdn.example.com/small.jpg"},
+                "full": {"url": "https://cdn.example.com/full.jpg"}
+              }
+            },
+            {
+              "type": "video",
+              "file": {"url": "https://cdn.example.com/demo.mp4"}
+            }
+          ]}
+        </script>
+    """
+
+    evidence = extract_page_evidence(html)
+
+    assert [candidate.url for candidate in evidence.image_candidates] == [
+        "https://cdn.example.com/small.jpg",
+        "https://cdn.example.com/full.jpg",
+    ]
+    assert [candidate.url for candidate in evidence.video_candidates] == [
+        "https://cdn.example.com/demo.mp4"
+    ]
+
+
+def test_does_not_treat_unrelated_content_urls_as_video() -> None:
+    html = """
+        <script type="application/json">
+          {"article": {"contentUrl": "https://example.com/story"}}
+        </script>
+    """
+
+    evidence = extract_page_evidence(html)
+
+    assert evidence.video_candidates == []
+
+
+def test_rejects_non_http_media_urls() -> None:
+    html = """
+        <img src="data:image/png;base64,abc">
+        <img src="javascript:alert('x')">
+        <img src="//cdn.example.com/protocol-relative.jpg">
+    """
+
+    without_base = extract_page_evidence(html)
+    with_base = extract_page_evidence(html, "https://example.com/product")
+
+    assert [candidate.url for candidate in without_base.image_candidates] == [
+        "https://cdn.example.com/protocol-relative.jpg"
+    ]
+    assert [candidate.url for candidate in with_base.image_candidates] == [
+        "https://cdn.example.com/protocol-relative.jpg"
+    ]
+
+
+def test_structured_media_collection_obeys_candidate_limit(monkeypatch) -> None:
+    monkeypatch.setattr(extraction, "MAX_MEDIA_CANDIDATES", 2)
+    html = """
+        <script type="application/json">
+          {"images": [
+            "https://cdn.example.com/one.jpg",
+            "https://cdn.example.com/two.jpg",
+            "https://cdn.example.com/three.jpg"
+          ]}
+        </script>
+    """
+
+    evidence = extract_page_evidence(html)
+
+    assert [candidate.url for candidate in evidence.image_candidates] == [
+        "https://cdn.example.com/one.jpg",
+        "https://cdn.example.com/two.jpg",
+    ]
+
+
+def test_structured_media_collection_obeys_depth_limit(monkeypatch) -> None:
+    monkeypatch.setattr(extraction, "MAX_STRUCTURED_MEDIA_DEPTH", 2)
+    html = """
+        <script type="application/json">
+          {"images": {"large": {"asset": {"url": "https://example.com/deep.jpg"}}}}
+        </script>
+    """
+
+    evidence = extract_page_evidence(html)
+
+    assert evidence.image_candidates == []
