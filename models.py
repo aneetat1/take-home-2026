@@ -143,6 +143,58 @@ class ProductEvidence(BaseModel):
     video_candidates: list[VideoCandidate]
 
 
+class ExtractedCategory(BaseModel):
+    """Taxonomy hints extracted from the page for local candidate retrieval."""
+
+    search_terms: list[str]
+    proposed_name: str | None
+
+
+class VariantDraft(BaseModel):
+    """A source-supported variant using media references instead of raw URLs."""
+
+    options: list[VariantOption] = Field(min_length=1)
+    sku: str | None
+    gtin: str | None
+    price: Price | None
+    available: bool | None
+    image_ids: list[str]
+
+
+class ProductDraft(BaseModel):
+    """Structured AI output before taxonomy and media references are resolved."""
+
+    name: str = Field(min_length=1)
+    price: Price
+    description: str = Field(min_length=1)
+    key_features: list[str]
+    image_ids: list[str]
+    video_id: str | None
+    brand: str = Field(min_length=1)
+    colors: list[str]
+    variants: list[VariantDraft]
+    category: ExtractedCategory
+
+    @field_validator("name", "description", "brand", mode="before")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        if not isinstance(value, str):
+            raise ValueError("Required product text must be a string")
+        return value.strip()
+
+
+class VariantDraftCollection(BaseModel):
+    """Complete source-supported configurations recovered from product evidence."""
+
+    variants: list[VariantDraft]
+
+
+class CategorySelection(BaseModel):
+    """The exact Google taxonomy category selected from a supplied shortlist."""
+
+    name: str
+
+
 # This is the final product schema that you need to output.
 # You may add additional models as needed.
 class Product(BaseModel):

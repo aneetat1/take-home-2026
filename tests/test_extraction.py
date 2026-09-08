@@ -370,6 +370,7 @@ def test_rejects_non_http_media_urls() -> None:
     html = """
         <img src="data:image/png;base64,abc">
         <img src="javascript:alert('x')">
+        <img src="asset_identifier_123">
         <img src="//cdn.example.com/protocol-relative.jpg">
     """
 

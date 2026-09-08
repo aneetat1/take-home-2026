@@ -115,6 +115,76 @@ def test_keeps_sparse_record_when_parent_key_supplies_product_context() -> None:
     )
 
 
+def test_prioritizes_product_items_before_large_related_collections(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(evidence, "MAX_STRUCTURED_NODES", 40)
+    page = make_page(
+        embedded_json=[
+            {
+                "product": {
+                    "name": "Example Shirt",
+                    "sku": "SHIRT",
+                    "items": [
+                        {"name": "Small", "sku": "SHIRT-S", "stock": 4},
+                        {"name": "Large", "sku": "SHIRT-L", "stock": 2},
+                    ],
+                    "relatedProducts": [
+                        {
+                            "name": f"Related {index}",
+                            "sku": f"RELATED-{index}",
+                            "price": index,
+                        }
+                        for index in range(100)
+                    ],
+                }
+            }
+        ]
+    )
+
+    prepared = prepare_product_evidence(page)
+    serialized = prepared.model_dump_json()
+
+    assert "SHIRT-S" in serialized
+    assert "SHIRT-L" in serialized
+
+
+def test_preserves_option_answers_and_their_sku_relationships() -> None:
+    page = make_page(
+        embedded_json=[
+            {
+                "product": {
+                    "name": "Example Shirt",
+                    "questions": [
+                        {
+                            "title": "Color",
+                            "type": "COLOR",
+                            "answers": [
+                                {
+                                    "title": "Navy",
+                                    "skus": ["SHIRT-NAVY-S", "SHIRT-NAVY-L"],
+                                }
+                            ],
+                        }
+                    ],
+                    "skus": [
+                        {"id": "SHIRT-NAVY-S", "availability": "IN_STOCK"},
+                        {"id": "SHIRT-NAVY-L", "availability": "OUT_OF_STOCK"},
+                    ],
+                }
+            }
+        ]
+    )
+
+    prepared = prepare_product_evidence(page)
+    serialized = prepared.model_dump_json()
+
+    assert '"title":"Color"' in serialized
+    assert '"title":"Navy"' in serialized
+    assert serialized.count("SHIRT-NAVY-S") >= 2
+    assert serialized.count("SHIRT-NAVY-L") >= 2
+
+
 def test_removes_duplicate_structured_records() -> None:
     product = {
         "@type": "Product",
@@ -205,6 +275,56 @@ def test_assigns_stable_media_references_and_preserves_exact_urls() -> None:
         "VID_0001": "https://example.com/demo.mp4"
     }
     assert all(item.reference is None for item in page.image_candidates)
+
+
+def test_keeps_largest_query_based_image_rendition() -> None:
+    page = make_page(
+        image_candidates=[
+            ImageCandidate(
+                url="https://example.com/chair.jpg?w=640&q=80",
+                source="img:srcset",
+                width=640,
+            ),
+            ImageCandidate(
+                url="https://example.com/chair.jpg?w=2400&q=60",
+                source="img:srcset",
+                width=2400,
+            ),
+            ImageCandidate(
+                url="https://example.com/chair.jpg?crop=detail&w=1200",
+                source="img:srcset",
+                width=1200,
+            ),
+        ]
+    )
+
+    prepared = prepare_product_evidence(page)
+
+    assert [candidate.url for candidate in prepared.image_candidates] == [
+        "https://example.com/chair.jpg?w=2400&q=60",
+        "https://example.com/chair.jpg?crop=detail&w=1200",
+    ]
+
+
+def test_prefers_original_image_url_over_resized_copy() -> None:
+    page = make_page(
+        image_candidates=[
+            ImageCandidate(
+                url="https://example.com/chair.jpg?wid=65&resMode=sharp",
+                source="img:src",
+            ),
+            ImageCandidate(
+                url="https://example.com/chair.jpg",
+                source="embedded_json:image",
+            ),
+        ]
+    )
+
+    prepared = prepare_product_evidence(page)
+
+    assert [candidate.url for candidate in prepared.image_candidates] == [
+        "https://example.com/chair.jpg"
+    ]
 
 
 def test_distillation_only_uses_values_from_the_source() -> None:

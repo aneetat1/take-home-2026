@@ -363,11 +363,20 @@ def _normalize_media_url(value: Any, source_url: str | None) -> str | None:
     raw_url = value.strip()
     if raw_url.startswith("//"):
         raw_url = f"https:{raw_url}"
+    elif not urlparse(raw_url).scheme and not _looks_like_relative_url(raw_url):
+        return None
     url = urljoin(source_url, raw_url) if source_url else raw_url
     parsed = urlparse(url)
     if parsed.scheme.casefold() not in {"http", "https"} or not parsed.netloc:
         return None
     return url
+
+
+def _looks_like_relative_url(value: str) -> bool:
+    if value.startswith(("/", "./", "../")) or "/" in value:
+        return True
+    path = value.partition("?")[0].partition("#")[0]
+    return bool(re.search(r"\.[a-z0-9]{2,5}$", path, re.I))
 
 
 def _semantic_key(value: str) -> str:

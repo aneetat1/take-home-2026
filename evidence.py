@@ -1,8 +1,10 @@
 import json
+import math
 import re
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from models import MetadataEntry, PageEvidence, ProductEvidence
+from models import ImageCandidate, MetadataEntry, PageEvidence, ProductEvidence
 
 
 DEFAULT_MAX_CHARACTERS = 100_000
@@ -12,12 +14,27 @@ MAX_METADATA_CONTENT_CHARACTERS = 2_000
 MAX_VISIBLE_TEXT_CHARACTERS = 20_000
 MAX_STRUCTURED_RECORDS = 50
 MAX_STRUCTURED_DEPTH = 12
-MAX_STRUCTURED_NODES = 2_000
+MAX_STRUCTURED_NODES = 5_000
 MAX_DICTIONARY_ITEMS = 100
 MAX_LIST_ITEMS = 100
 MAX_STRING_CHARACTERS = 4_000
 MAX_IMAGE_CANDIDATES = 500
 MAX_VIDEO_CANDIDATES = 50
+RENDITION_QUERY_PARAMETERS = {
+    "dpr",
+    "fit",
+    "fm",
+    "format",
+    "h",
+    "hei",
+    "height",
+    "q",
+    "quality",
+    "resmode",
+    "w",
+    "wid",
+    "width",
+}
 
 HIGH_VALUE_SCHEMA_TYPES = {
     "product",
@@ -41,15 +58,20 @@ HIGH_VALUE_METADATA_NAMES = {
 }
 RELEVANT_FIELD_PARTS = {
     "availability",
+    "answer",
+    "barcode",
     "brand",
     "color",
+    "choice",
     "currency",
     "description",
+    "ean",
     "feature",
     "fit",
     "gtin",
     "image",
     "inventory",
+    "item",
     "material",
     "media",
     "name",
@@ -57,14 +79,18 @@ RELEVANT_FIELD_PARTS = {
     "option",
     "price",
     "product",
+    "question",
+    "selection",
     "size",
     "sku",
     "stock",
     "style",
     "title",
+    "upc",
     "variant",
     "video",
 }
+CONTEXT_FIELD_KEYS = {"id", "label", "type", "value"}
 
 
 def prepare_product_evidence(
@@ -118,10 +144,11 @@ def prepare_product_evidence(
         ):
             continue
 
+    preferred_images = _collapse_image_renditions(page.image_candidates)
     referenced_images = [
         candidate.model_copy(update={"reference": f"IMG_{index:04d}"})
         for index, candidate in enumerate(
-            page.image_candidates[:MAX_IMAGE_CANDIDATES], start=1
+            preferred_images[:MAX_IMAGE_CANDIDATES], start=1
         )
     ]
     referenced_videos = [
@@ -169,6 +196,70 @@ def video_url_by_reference(evidence: ProductEvidence) -> dict[str, str]:
         for candidate in evidence.video_candidates
         if candidate.reference is not None
     }
+
+
+def _collapse_image_renditions(
+    candidates: list[ImageCandidate],
+) -> list[ImageCandidate]:
+    """Keep the largest URL when candidates differ only by render settings."""
+
+    selected: list[ImageCandidate] = []
+    indexes: dict[str, int] = {}
+    for candidate in candidates:
+        identity = _image_identity(candidate.url)
+        if identity not in indexes:
+            indexes[identity] = len(selected)
+            selected.append(candidate)
+            continue
+
+        index = indexes[identity]
+        if _image_resolution_score(candidate) > _image_resolution_score(
+            selected[index]
+        ):
+            selected[index] = candidate
+    return selected
+
+
+def _image_identity(url: str) -> str:
+    parsed = urlsplit(url)
+    identity_query = [
+        (name, value)
+        for name, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if name.casefold() not in RENDITION_QUERY_PARAMETERS
+    ]
+    return urlunsplit(
+        (
+            parsed.scheme.casefold(),
+            parsed.netloc.casefold(),
+            parsed.path,
+            urlencode(sorted(identity_query)),
+            "",
+        )
+    )
+
+
+def _image_resolution_score(candidate: ImageCandidate) -> tuple[float, int]:
+    query_items = parse_qsl(urlsplit(candidate.url).query)
+    query = {name.casefold(): value for name, value in query_items}
+    rendition_parameter_count = sum(
+        name.casefold() in RENDITION_QUERY_PARAMETERS for name, _ in query_items
+    )
+    if rendition_parameter_count == 0:
+        # A URL without resize instructions is the page's original rendition.
+        return math.inf, 0
+    declared_width = candidate.width or _positive_number(
+        query.get("width") or query.get("wid") or query.get("w")
+    )
+    density = candidate.density or _positive_number(query.get("dpr")) or 1
+    return declared_width * density, -rendition_parameter_count
+
+
+def _positive_number(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0
+    return number if number > 0 else 0
 
 
 def _prioritize_metadata(page: PageEvidence) -> list[MetadataEntry]:
@@ -336,6 +427,16 @@ def _compact_value(value: Any) -> Any | None:
                 node.items(),
                 key=lambda item: -_field_score(_semantic_key(str(item[0]))),
             )
+            if _record_score(node) >= 3:
+                relevant_items = [
+                    item
+                    for item in items
+                    if _field_score(_semantic_key(str(item[0]))) > 0
+                    or _semantic_key(str(item[0])) in CONTEXT_FIELD_KEYS
+                    or item[0] == "@type"
+                ]
+                if relevant_items:
+                    items = relevant_items
             result: dict[str, Any] = {}
             for key, child in items[:MAX_DICTIONARY_ITEMS]:
                 compacted = compact(child, depth + 1)
