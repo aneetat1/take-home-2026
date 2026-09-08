@@ -1,7 +1,10 @@
 import logging
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, TypeVar
+from typing import Any, Iterator, TypeVar
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -30,6 +33,51 @@ MODEL_PRICES: dict[str, dict[str, float]] = {
 T = TypeVar("T", bound=BaseModel)
 
 
+@dataclass(frozen=True)
+class UsageRecord:
+    """Token counts and estimated cost for one model call."""
+
+    model: str
+    input_tokens: int
+    output_tokens: int
+    reasoning_tokens: int
+    estimated_cost: float | None
+
+
+@dataclass(frozen=True)
+class UsageTotals:
+    """Aggregated usage for a group of calls."""
+
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    reasoning_tokens: int = 0
+    estimated_cost: float | None = 0.0
+
+
+@dataclass(frozen=True)
+class UsageSummary(UsageTotals):
+    """Aggregated usage with a breakdown for each model."""
+
+    by_model: dict[str, UsageTotals] = field(default_factory=dict)
+
+
+@dataclass
+class UsageCapture:
+    """Calls recorded within one ingestion task."""
+
+    records: list[UsageRecord] = field(default_factory=list)
+
+    @property
+    def summary(self) -> UsageSummary:
+        return summarize_usage(self.records)
+
+
+_ACTIVE_USAGE_CAPTURE: ContextVar[UsageCapture | None] = ContextVar(
+    "active_usage_capture", default=None
+)
+
+
 @lru_cache
 def _get_client() -> AsyncOpenAI:
     """Get cached AsyncOpenAI client configured for OpenRouter."""
@@ -39,12 +87,49 @@ def _get_client() -> AsyncOpenAI:
     return AsyncOpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
 
 
-def _log_usage(response) -> None:
-    """Log token usage and cost extrapolation for 1M queries."""
+@contextmanager
+def capture_usage() -> Iterator[UsageCapture]:
+    """Collect usage for calls made in the current async context."""
+
+    capture = UsageCapture()
+    token = _ACTIVE_USAGE_CAPTURE.set(capture)
+    try:
+        yield capture
+    finally:
+        _ACTIVE_USAGE_CAPTURE.reset(token)
+
+
+def summarize_usage(records: list[UsageRecord]) -> UsageSummary:
+    """Combine individual calls without treating unknown prices as free."""
+
+    grouped: dict[str, list[UsageRecord]] = {}
+    for record in records:
+        grouped.setdefault(record.model, []).append(record)
+    return UsageSummary(
+        **_usage_totals(records).__dict__,
+        by_model={model: _usage_totals(items) for model, items in sorted(grouped.items())},
+    )
+
+
+def _usage_totals(records: list[UsageRecord]) -> UsageTotals:
+    costs = [record.estimated_cost for record in records]
+    total_cost = sum(cost for cost in costs if cost is not None)
+    return UsageTotals(
+        calls=len(records),
+        input_tokens=sum(record.input_tokens for record in records),
+        output_tokens=sum(record.output_tokens for record in records),
+        reasoning_tokens=sum(record.reasoning_tokens for record in records),
+        estimated_cost=total_cost if all(cost is not None for cost in costs) else None,
+    )
+
+
+def _log_usage(response) -> UsageRecord | None:
+    """Record one response and log its token usage and estimated cost."""
+
     usage = getattr(response, "usage", None)
     if usage is None:
         logger.warning("No usage data in response")
-        return
+        return None
 
     model = getattr(response, "model", "unknown")
     input_tokens = getattr(usage, "input_tokens", 0)
@@ -56,27 +141,37 @@ def _log_usage(response) -> None:
     if output_details:
         reasoning_tokens = getattr(output_details, "reasoning_tokens", 0) or 0
 
-    # Get prices (default to 0 if model unknown)
-    prices = MODEL_PRICES.get(model, {"input": 0, "output": 0})
-    input_price = prices["input"]
-    output_price = prices["output"]  # Also used for reasoning
+    prices = MODEL_PRICES.get(model)
+    estimated_cost = None
+    if prices is not None:
+        # Reasoning tokens are already included in output_tokens by OpenRouter.
+        estimated_cost = (
+            input_tokens * prices["input"] + output_tokens * prices["output"]
+        ) / 1_000_000
 
-    # Calculate cost for this single query
-    single_input_cost = (input_tokens / 1_000_000) * input_price
-    single_output_cost = (output_tokens / 1_000_000) * output_price
-    single_reasoning_cost = (reasoning_tokens / 1_000_000) * output_price
-    single_total = single_input_cost + single_output_cost + single_reasoning_cost
-
-    # Extrapolate to 1M queries
-    million_cost = single_total * 1_000_000
-
-    logger.info(
-        f"Token usage for {model}: "
-        f"input={input_tokens}, output={output_tokens}, reasoning={reasoning_tokens} | "
-        f"This query: ${single_total:.6f} | "
-        f"1M queries: ${million_cost:,.2f} | "
-        f"10M queries: ${million_cost * 10:,.2f}"
+    record = UsageRecord(
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        reasoning_tokens=reasoning_tokens,
+        estimated_cost=estimated_cost,
     )
+    capture = _ACTIVE_USAGE_CAPTURE.get()
+    if capture is not None:
+        capture.records.append(record)
+
+    cost_text = (
+        f"${estimated_cost:.6f}" if estimated_cost is not None else "unknown"
+    )
+    logger.info(
+        "Token usage for %s: input=%s, output=%s, reasoning=%s | Cost: %s",
+        model,
+        input_tokens,
+        output_tokens,
+        reasoning_tokens,
+        cost_text,
+    )
+    return record
 
 
 async def responses(
