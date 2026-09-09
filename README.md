@@ -131,7 +131,9 @@ raw HTML
 
 The first pass collects anything that might describe the product: metadata, JSON-LD, embedded JSON, visible text, images from `srcset` and other image attributes, and video URLs. It intentionally does not try to decide which candidate is correct yet. The next step keeps the records that look most useful for a product, removes duplicates, and limits both individual fields and the total payload. This keeps large application-state objects from making every AI request unnecessarily expensive.
 
-The model returns a typed product draft. For media, it selects short identifiers such as `IMG_0001` instead of copying long CDN URLs. The application then maps those identifiers back to the exact URLs collected from the page, so a model cannot accidentally rewrite a URL. Category selection is handled separately: the application searches the taxonomy locally, sends a short list of plausible categories to a second AI call, and requires the model to choose one of them exactly. Pydantic performs the final validation.
+The model returns a typed product draft. The main extraction uses `openai/gpt-5-mini` because it has to interpret page evidence and recover detailed product and variant data. For media, it selects short identifiers such as `IMG_0001` instead of copying long CDN URLs. The application maps those identifiers back to the exact URLs collected from the page, so the model cannot accidentally rewrite a URL.
+
+Category selection is a smaller, constrained task, so it uses the cheaper `openai/gpt-5-nano`. The application searches the taxonomy locally, sends the model a short list of plausible categories, and requires it to choose one exactly. Pydantic performs the final validation.
 
 Variants represent complete configurations only when the page connects the option values. For example, a color and size can be stored together when the evidence ties both to the same SKU. If a page only lists colors and sizes independently, the code does not assume that every possible combination exists.
 
