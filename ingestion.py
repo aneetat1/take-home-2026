@@ -9,6 +9,7 @@ from typing import Awaitable, Callable
 import ai
 from hydrate import DEFAULT_CATEGORY_MODEL, DEFAULT_EXTRACTION_MODEL, hydrate_product
 from models import Product
+from product_store import catalog_product
 
 
 Hydrator = Callable[..., Awaitable[Product]]
@@ -129,7 +130,7 @@ async def ingest_directory(
                     )
                 _write_json_atomic(
                     output_dir / f"{path.stem}.json",
-                    product.model_dump(mode="json"),
+                    catalog_product(product).model_dump(mode="json"),
                 )
                 return IngestionResult(
                     source_file=path,
@@ -150,7 +151,7 @@ async def ingest_directory(
     _write_json_atomic(
         combined_output,
         [
-            result.product.model_dump(mode="json")
+            catalog_product(result.product).model_dump(mode="json")
             for result in results
             if result.product is not None
         ],

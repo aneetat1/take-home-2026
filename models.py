@@ -210,3 +210,20 @@ class Product(BaseModel):
     # Include only option combinations supported by the source data.
     # Do not generate every possible combination of independent option lists.
     variants: list[Variant]
+
+
+class CatalogProduct(Product):
+    """A persisted product with the stable identifier used by the API."""
+
+    id: str = Field(min_length=1)
+
+
+class ProductSummary(BaseModel):
+    """The subset of product data needed to render a catalog card."""
+
+    id: str
+    name: str
+    price: Price
+    brand: str
+    category: Category
+    image_url: str | None

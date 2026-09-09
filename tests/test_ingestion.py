@@ -10,6 +10,7 @@ import ingestion
 import main as cli
 from ingestion import BatchResult, IngestionResult, ingest_directory
 from models import Category, Price, Product
+from product_store import stable_product_id
 
 
 def make_product(name: str) -> Product:
@@ -94,7 +95,9 @@ def test_batch_limits_concurrency_and_writes_valid_outputs(tmp_path: Path) -> No
     assert result.usage.calls == 3
     assert result.usage.by_model["openai/gpt-5-mini"].calls == 3
     for name in ("a", "b", "c"):
-        Product.model_validate_json((output_dir / f"{name}.json").read_text())
+        output = json.loads((output_dir / f"{name}.json").read_text())
+        Product.model_validate(output)
+        assert output["id"] == stable_product_id(make_product(f"{name}.html"))
     combined = json.loads((output_dir / "products.json").read_text())
     assert [product["name"] for product in combined] == [
         "a.html",
