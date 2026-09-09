@@ -1,6 +1,6 @@
 # Channel3 Product Extraction Take-Home
 
-This project converts raw product-detail-page HTML into validated product data and presents the resulting catalog in a small web application. The backend collects evidence without retailer-specific rules, uses structured AI responses to hydrate the supplied Pydantic schema, validates categories against Google's Product Taxonomy, and writes a JSON catalog. A read-only FastAPI service exposes that catalog to a React application with catalog and product-detail pages.
+This project turns raw HTML from product pages into structured, validated product data. It collects useful evidence from each page, asks an AI model to organize that evidence into the provided Pydantic schema, and checks the result against Google's Product Taxonomy. The extracted products are saved as JSON, served through a small FastAPI API, and displayed in a React catalog and product detail page.
 
 The repository includes five HTML snapshots in `data/` and checked-in product output, so the API and frontend can be reviewed without making new AI calls.
 
@@ -57,7 +57,7 @@ The defaults can be changed when evaluating other HTML files:
 uv run python main.py ingest --input-dir data --output-dir output/products --concurrency 2
 ```
 
-Source URLs are optional. When relative URLs in an HTML snapshot need an external base URL and the page does not provide a canonical URL, pass a JSON manifest that maps filenames to source URLs with `--manifest path/to/manifest.json`. The manifest supplies URL context only; it never changes how a page is parsed.
+Source URLs are optional. If a snapshot contains relative URLs and does not include its own canonical URL, `--manifest path/to/manifest.json` can provide a JSON mapping from filenames to their original URLs. The manifest is only used to resolve URLs; it does not change the extraction logic.
 
 Regenerating the catalog makes paid OpenRouter requests. The checked-in catalog can be served directly when regeneration is unnecessary.
 
@@ -127,12 +127,15 @@ raw HTML
   -> FastAPI
   -> React catalog and product detail page
 ```
+<img width="658.5" height="991.5" alt="Extraction Architecture" src="https://github.com/user-attachments/assets/57bb074a-9dab-421b-9953-0a28634db00a" />
 
-The deterministic pass reads common HTML structures such as metadata, JSON-LD, embedded JSON, visible text, `srcset`, image elements, and video fields. It deliberately gathers broad evidence without deciding which facts belong to the main product. The next stage recursively selects product-related records, removes duplicates, limits strings and collections, and enforces an overall serialized-character budget before any AI call.
+The first pass collects anything that might describe the product: metadata, JSON-LD, embedded JSON, visible text, images from `srcset` and other image attributes, and video URLs. It intentionally does not try to decide which candidate is correct yet. The next step keeps the records that look most useful for a product, removes duplicates, and limits both individual fields and the total payload. This keeps large application-state objects from making every AI request unnecessarily expensive.
 
-The extraction model returns a typed draft containing media identifiers rather than CDN URLs. Application code maps those identifiers back to the exact URLs found in the HTML, preventing rewritten or invented media links. A local lexical search produces a bounded taxonomy shortlist, and a second structured call must select one of those exact categories before Pydantic validates it. Variants contain complete option configurations only when the evidence connects those values; the pipeline does not generate combinations from independent option lists.
+The model returns a typed product draft. For media, it selects short identifiers such as `IMG_0001` instead of copying long CDN URLs. The application then maps those identifiers back to the exact URLs collected from the page, so a model cannot accidentally rewrite a URL. Category selection is handled separately: the application searches the taxonomy locally, sends a short list of plausible categories to a second AI call, and requires the model to choose one of them exactly. Pydantic performs the final validation.
 
-The implementation remains generic: it uses standard markup and semantic field names, never branches on a retailer or domain, and includes no examples from the supplied pages in its prompts. Site-specific observations are kept out of runtime code. New HTML files can be processed without adding selectors, source manifests, or retailer rules.
+Variants represent complete configurations only when the page connects the option values. For example, a color and size can be stored together when the evidence ties both to the same SKU. If a page only lists colors and sizes independently, the code does not assume that every possible combination exists.
+
+The extractor is designed to work across sites. It relies on common HTML structures and product-related field names rather than retailer names, domains, or selectors written for these snapshots. The prompts also contain no examples or facts from the supplied pages. New HTML files can go through the same pipeline without adding a site-specific branch.
 
 ## Known limitations
 
@@ -144,6 +147,10 @@ The implementation remains generic: it uses standard markup and semantic field n
 
 ## System design
 
-To grow from five snapshots to 50 million products, I would store raw HTML and fetch metadata in object storage, then submit idempotent jobs to a durable queue. Horizontally scaled stateless workers would handle fetching, deterministic parsing, AI extraction, validation, and indexing as separate stages, so each stage could scale and retry independently. A canonical URL and content hash would provide deduplication and let unchanged pages skip extraction; live crawlers would also enforce per-domain rate limits. Transient failures would receive bounded retries with backoff, while persistent failures would move to a dead-letter queue for inspection. Model routing could send simple, well-structured pages to cheaper models and reserve stronger models for sparse or conflicting evidence, with bounded prompts controlling both cost and latency. Every schema, prompt, model configuration, and extraction would be versioned, and quality monitoring would combine validation rates, field-level drift, source coverage, cost, and sampled human review. Updates would be incremental and prioritized by expected price or inventory volatility rather than repeatedly processing all 50 million pages. Validated products would be written to a transactional source of truth and a search index designed for catalog serving. The take-home's local files, single command, in-memory catalog, and synchronous full regeneration are convenient for five products but would not support that workload.
+At 50 million products, I would replace the local batch process with a pipeline built around object storage and a durable queue. A crawler would save the raw HTML and fetch metadata, then enqueue a job for a fleet of stateless workers. Fetching, parsing, AI extraction, validation, and search indexing would be separate stages so they could scale and retry independently. Jobs would be idempotent, and a hash of the page content would let us skip AI extraction when a page has not changed. Live crawlers would limit requests per domain, temporary failures would get a small number of retries with backoff, and repeated failures would move to a dead-letter queue for investigation. I would route clean, structured pages to cheaper models and reserve stronger models for sparse or conflicting pages, while continuing to cap prompt sizes. Schemas, prompts, model settings, and outputs would all be versioned so we could trace a bad result and reprocess only the affected products. I would monitor validation failures, field coverage, cost, and changes in output quality, with people reviewing a sample of results. Products would be refreshed based on how often their price or inventory changes instead of rerunning all 50 million at once, then stored in a durable database and search index. The local files, single process, in-memory API, and full batch regeneration used here are practical for five products, but none of them would be enough at that scale.
+
+Product updates would be incremental, following this flow:
+<img width="684.2" height="813" alt="system design diagram" src="https://github.com/user-attachments/assets/f33918b4-e292-40fc-a4d5-a162bcf2f083" />
+
 
 For agentic shopping clients, I would provide product search with structured filters and cursor pagination, product-detail lookup, and variant-level price, availability, and delivery lookups. Stable product and variant identifiers would accompany provenance, extraction version, and freshness timestamps so an agent could judge whether a value should be refreshed before acting. Batch lookup endpoints would reduce round trips, while webhooks or a change feed would notify clients about price and inventory changes. The API contract would be published as OpenAPI and used to generate typed Python and TypeScript clients. I would also publish small tool schemas designed for agent function calling, including search, compare, resolve-variant, and refresh-availability operations. A sandbox catalog, example applications, and request/response fixtures would let developers test shopping flows without touching live inventory or checkout systems.
