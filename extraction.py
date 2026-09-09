@@ -392,6 +392,8 @@ def _is_image_key(key: str) -> bool:
 
 
 def _is_video_key(key: str) -> bool:
+    if any(part in key for part in ("baseurl", "domain", "host", "server")):
+        return False
     return (
         key in VIDEO_KEYS
         or key.endswith(("video", "videos", "videourl", "videourls"))

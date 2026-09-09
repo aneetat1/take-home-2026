@@ -370,3 +370,33 @@ def test_product_evidence_can_be_serialized_as_json() -> None:
     prepared = prepare_product_evidence(make_page())
 
     assert json.loads(prepared.model_dump_json())["title"] == "Example Product"
+
+
+def test_keeps_full_string_value_beside_a_short_display_value() -> None:
+    page = make_page(
+        embedded_json=[
+            {
+                "product": {
+                    "name": "Example Jacket",
+                    "price": 120,
+                    "properties": [
+                        {
+                            "attribute": "feature",
+                            "values": [
+                                {
+                                    "value": "Water-resistant fabr",
+                                    "stringValue": (
+                                        "Water-resistant fabric with sealed seams"
+                                    ),
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+        ]
+    )
+
+    prepared = prepare_product_evidence(page)
+
+    assert "Water-resistant fabric with sealed seams" in prepared.model_dump_json()

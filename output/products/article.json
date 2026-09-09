@@ -1,0 +1,67 @@
+{
+  "name": "Pilar Floor Lamp - White Terrazzo",
+  "price": {
+    "price": 349.0,
+    "currency": "USD",
+    "compare_at_price": null
+  },
+  "description": "The Pilar is a shining light atop a tall, slender terrazzo base, emitting a warm glow from its beacon-like fabric-wrapped shade. If you're looking for that statement piece, you're in the right place—the Pilar stands four and a half feet tall, shining light across your home.",
+  "key_features": [
+    "Terrazzo base with a fabric shade",
+    "E26 7W LED bulb included"
+  ],
+  "image_urls": [
+    "https://cdn-images.article.com/products/SKU25289/2890x1500/image154290.jpg",
+    "https://cdn-images.article.com/products/SKU25289/2890x1500/image154289.jpg?w=3840&q=60&fit=max",
+    "https://cdn-images.article.com/products/SKU25289/2890x1500/image169693.jpg?w=3840&q=60&fit=max",
+    "https://cdn-images.article.com/products/SKU25289/2890x1500/image154288.jpg?w=3840&q=60&fit=max",
+    "https://cdn-images.article.com/products/SKU25289/2890x1500/image154286.jpg?w=3840&q=60&fit=max",
+    "https://cdn-images.article.com/products/SKU25289/2890x1500/image154287.jpg?w=3840&q=60&fit=max",
+    "https://cdn-images.article.com/products/SKU25289/2890x1500/image154291.jpg?w=3840&q=60&fit=max",
+    "https://cdn-images.article.com/products/SKU25289/2890x1500/image154292.jpg?w=3840&q=60&fit=max",
+    "https://cdn-images.article.com/products/SKU25289/2890x1500/image154293.jpg?w=3840&q=60&fit=max",
+    "https://cdn-images.article.com/products/SKU25289/2890x1500/image154295.jpg?w=3840&q=60&fit=max",
+    "https://cdn-images.article.com/products/SKU25289/2890x1500/image154294.jpg?w=3840&q=60&fit=max",
+    "https://cdn-images.article.com/products/SKU25289/2890x1500/image154296.jpg?w=3840&q=60&fit=max"
+  ],
+  "video_url": null,
+  "category": {
+    "name": "Home & Garden > Lighting > Lamps"
+  },
+  "brand": "Article",
+  "colors": [
+    "White Terrazzo"
+  ],
+  "variants": [
+    {
+      "options": [
+        {
+          "name": "Color",
+          "value": "White Terrazzo"
+        }
+      ],
+      "sku": "SKU25289",
+      "gtin": null,
+      "price": {
+        "price": 349.0,
+        "currency": "USD",
+        "compare_at_price": null
+      },
+      "available": null,
+      "image_urls": [
+        "https://cdn-images.article.com/products/SKU25289/2890x1500/image154290.jpg",
+        "https://cdn-images.article.com/products/SKU25289/2890x1500/image154289.jpg?w=3840&q=60&fit=max",
+        "https://cdn-images.article.com/products/SKU25289/2890x1500/image169693.jpg?w=3840&q=60&fit=max",
+        "https://cdn-images.article.com/products/SKU25289/2890x1500/image154288.jpg?w=3840&q=60&fit=max",
+        "https://cdn-images.article.com/products/SKU25289/2890x1500/image154286.jpg?w=3840&q=60&fit=max",
+        "https://cdn-images.article.com/products/SKU25289/2890x1500/image154287.jpg?w=3840&q=60&fit=max",
+        "https://cdn-images.article.com/products/SKU25289/2890x1500/image154291.jpg?w=3840&q=60&fit=max",
+        "https://cdn-images.article.com/products/SKU25289/2890x1500/image154292.jpg?w=3840&q=60&fit=max",
+        "https://cdn-images.article.com/products/SKU25289/2890x1500/image154293.jpg?w=3840&q=60&fit=max",
+        "https://cdn-images.article.com/products/SKU25289/2890x1500/image154295.jpg?w=3840&q=60&fit=max",
+        "https://cdn-images.article.com/products/SKU25289/2890x1500/image154294.jpg?w=3840&q=60&fit=max",
+        "https://cdn-images.article.com/products/SKU25289/2890x1500/image154296.jpg?w=3840&q=60&fit=max"
+      ]
+    }
+  ]
+}

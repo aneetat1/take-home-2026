@@ -48,6 +48,7 @@ Each variant must be a complete configuration explicitly connected by the eviden
 Do not create a Cartesian product from separate option lists. If colors and sizes are
 listed independently, do not claim that every color-size combination exists. Use null
 for optional variant fields whose values are not established by the evidence.
+Copy option values from the evidence; do not create or paraphrase a configuration.
 When the evidence explicitly lists purchasable records or SKUs with their option
 values, include every evidenced configuration rather than summarizing the option list.
 Option values and purchasable identifiers may be stored in separate objects. Follow
@@ -57,6 +58,9 @@ purchasable identifier supported by those relationships.
 
 Use price.price for the current selling price and price.compare_at_price only for an
 evidenced higher original or list price. Use a three-letter ISO currency code.
+Prefer the main price available to ordinary shoppers. Do not substitute a conditional
+member, coupon, subscription, financing, or trade-in price when a public price is
+shown; conditional offers may be described as features instead.
 
 Select product images and video only by their IMG_#### and VID_#### references. Copy
 references exactly and never return or rewrite their URLs. Include all evidenced
@@ -74,6 +78,8 @@ category supported by the product information. You must copy one candidate exact
 Do not alter a candidate and do not return a category outside the supplied list.
 Choose a specialized subtype only when the product evidence supports that subtype;
 do not choose a niche category merely because it shares a word with the product name.
+Treat the product name and description as primary evidence. Category search terms and
+the proposed category are untrusted extraction hints and may be inaccurate.
 """
 
 VARIANT_SYSTEM_PROMPT = """Extract every explicitly supported purchasable product
@@ -188,7 +194,7 @@ async def hydrate_product(
             ),
             category=category,
             brand=draft.brand,
-            colors=draft.colors,
+            colors=_product_colors(draft.colors, draft.variants),
             variants=[
                 Variant(
                     options=variant.options,
@@ -276,8 +282,13 @@ def find_category_candidates(
 
     proposed = category.proposed_name
     exact_match = proposed if proposed in VALID_CATEGORIES else None
+    product_name_tokens = set(_tokens(product_name))
+    proposed_leaf_tokens = (
+        set(_tokens(proposed.rsplit(">", 1)[-1])) if proposed else set()
+    )
+    proposed_matches_title = bool(product_name_tokens & proposed_leaf_tokens)
     query_parts = [product_name, *category.search_terms, *key_features]
-    if proposed:
+    if proposed_matches_title:
         query_parts.insert(0, proposed)
     query_tokens = _tokens(" ".join(query_parts))
     if not query_tokens:
@@ -302,17 +313,47 @@ def find_category_candidates(
         )
         leaf_tokens = set(_tokens(name.rsplit(">", 1)[-1]))
         score += 1.5 * len(overlap & leaf_tokens)
-        if proposed and _normalized_text(proposed) == _normalized_text(name):
+        # Product-type words in the title should outweigh material and feature words.
+        score += 5 * len(product_name_tokens & set(tokens))
+        score += 4 * len(product_name_tokens & leaf_tokens)
+        if (
+            proposed
+            and _normalized_text(proposed) == _normalized_text(name)
+            and proposed_matches_title
+        ):
             score += 100
         ranked.append((score, name))
 
     ranked.sort(key=lambda item: (-item[0], len(item[1]), item[1]))
     candidates = [name for _, name in ranked[:limit]]
-    if exact_match:
+    if exact_match and proposed_matches_title:
         other_candidates = [name for name in candidates if name != exact_match]
         candidates = [exact_match, *other_candidates]
         candidates = candidates[:limit]
     return candidates
+
+
+def _product_colors(
+    stated_colors: Iterable[str], variants: Iterable[object]
+) -> list[str]:
+    """Combine stated colors with color values evidenced by variants."""
+
+    colors: list[str] = []
+    seen: set[str] = set()
+    for color in stated_colors:
+        normalized = color.strip().casefold()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            colors.append(color.strip())
+    for variant in variants:
+        for option in variant.options:
+            if option.name.casefold() not in {"color", "colour"}:
+                continue
+            normalized = option.value.casefold()
+            if normalized not in seen:
+                seen.add(normalized)
+                colors.append(option.value)
+    return colors
 
 
 def _resolve_references(

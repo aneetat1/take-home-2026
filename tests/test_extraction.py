@@ -366,6 +366,18 @@ def test_does_not_treat_unrelated_content_urls_as_video() -> None:
     assert evidence.video_candidates == []
 
 
+def test_does_not_treat_video_server_configuration_as_product_media() -> None:
+    html = """
+        <script type="application/json">
+          {"videoServerUrl": "https://media.example.com/is/content/store/"}
+        </script>
+    """
+
+    evidence = extract_page_evidence(html)
+
+    assert evidence.video_candidates == []
+
+
 def test_rejects_non_http_media_urls() -> None:
     html = """
         <img src="data:image/png;base64,abc">

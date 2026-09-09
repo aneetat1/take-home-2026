@@ -79,6 +79,7 @@ RELEVANT_FIELD_PARTS = {
     "option",
     "price",
     "product",
+    "propert",
     "question",
     "selection",
     "size",
@@ -90,7 +91,7 @@ RELEVANT_FIELD_PARTS = {
     "variant",
     "video",
 }
-CONTEXT_FIELD_KEYS = {"id", "label", "type", "value"}
+CONTEXT_FIELD_KEYS = {"id", "label", "stringvalue", "type", "value"}
 
 
 def prepare_product_evidence(

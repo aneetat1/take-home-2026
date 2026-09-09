@@ -335,6 +335,59 @@ def test_returns_no_category_candidates_without_lexical_evidence() -> None:
     assert candidates == []
 
 
+def test_product_type_outweighs_an_inaccurate_proposed_category() -> None:
+    candidates = find_category_candidates(
+        ExtractedCategory(
+            search_terms=["leather", "casual footwear"],
+            proposed_name=(
+                "Apparel & Accessories > Clothing > Traditional & Ceremonial "
+                "Clothing > Traditional Leather Pants"
+            ),
+        ),
+        product_name="Example Men's Shoes",
+        key_features=["Leather upper"],
+        limit=10,
+    )
+
+    assert "Apparel & Accessories > Shoes" in candidates
+    assert (
+        "Apparel & Accessories > Clothing > Traditional & Ceremonial Clothing > "
+        "Traditional Leather Pants"
+    ) not in candidates
+
+
+def test_product_colors_include_values_from_evidenced_variants(monkeypatch) -> None:
+    variants = [
+        VariantDraft(
+            options=[
+                VariantOption(name="Colour", value="Red"),
+                VariantOption(name="Size", value="Small"),
+            ],
+            sku="RED-S",
+            gtin=None,
+            price=None,
+            available=True,
+            image_ids=[],
+        ),
+        VariantDraft(
+            options=[VariantOption(name="Color", value="Blue")],
+            sku="BLUE",
+            gtin=None,
+            price=None,
+            available=True,
+            image_ids=[],
+        ),
+    ]
+    install_ai_responses(
+        monkeypatch,
+        make_draft(colors=["Red"], variants=variants),
+    )
+
+    product = run(hydrate_product(product_html()))
+
+    assert product.colors == ["Red", "Blue"]
+
+
 def test_tests_do_not_require_an_api_key(monkeypatch) -> None:
     monkeypatch.delenv("OPEN_ROUTER_API_KEY", raising=False)
     install_ai_responses(monkeypatch, make_draft())
